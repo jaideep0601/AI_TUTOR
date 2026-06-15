@@ -19,7 +19,7 @@ venv/
 env/
 .conda/
 
-# ChromaDB (large binary files)
+# ChromaDB
 chroma_db/
 
 # Generated exports
@@ -29,8 +29,39 @@ exports/*.pdf
 frontend/
 backend/
 
+# Node.js / Next.js
+node_modules/
+.next/
+out/
+.nuxt/
+.svelte-kit/
+coverage/
+.nyc_output/
+
+# TypeScript
+*.tsbuildinfo
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Package managers
+.npm/
+.pnpm-store/
+.yarn/
+.pnp.*
+
+# Build caches
+.cache/
+.parcel-cache/
+.vite/
+
 # IDE
 .vscode/
+.vscode-test/
 .idea/
 *.swp
 *.swo

@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # 🎓 AI Tutor Agent
 
 > A production-grade, multi-agent AI tutoring system built with LangChain, LangGraph, ChromaDB, and Streamlit.
@@ -335,3 +336,7 @@ pytest tests/test_nlp.py -v      # 14 pure-Python tests, ~0.1s
 pytest tests/test_ingest.py -v   # chunker tests, no external calls
 pytest tests/test_agents.py -v   # routing + scoring tests, mocked LLM
 ```
+=======
+# AI_TUTOR
+A multi-agent AI tutoring system with adaptive quizzing and Socratic learning powered by LLMs
+>>>>>>> a6eebc7f48a7eae3214c3e6b85406def4cc627ce
