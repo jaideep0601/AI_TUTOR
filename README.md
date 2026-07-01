@@ -1,342 +1,114 @@
-<<<<<<< HEAD
-# 🎓 AI Tutor Agent
+# AI Tutor Agent
 
-> A production-grade, multi-agent AI tutoring system built with LangChain, LangGraph, ChromaDB, and Streamlit.
+A full-stack AI tutoring application. Upload your notes (PDF/DOCX/TXT), ask questions,
+get Socratic explanations, generate quizzes, and track your learning progress — all
+powered by a LangGraph agent pipeline backed by Google Gemini.
 
----
+- **Backend:** FastAPI, LangChain, LangGraph, ChromaDB, Google Gemini API, spaCy
+- **Frontend:** Next.js 14 (App Router), TypeScript, Tailwind CSS, Zustand, Framer Motion, Recharts
 
-## Table of Contents
-
-- [Overview](#overview)
-- [Architecture](#architecture)
-- [Features](#features)
-- [Project Structure](#project-structure)
-- [Quick Start](#quick-start)
-- [Configuration](#configuration)
-- [Usage](#usage)
-- [Make Commands](#make-commands)
-- [LangSmith Tracing](#langsmith-tracing)
-- [PDF Report Export](#pdf-report-export)
-- [Testing](#testing)
-- [Design Decisions](#design-decisions)
-
----
-
-## Overview
-
-AI Tutor Agent is a Socratic tutoring system that ingests your study documents (PDF, DOCX, TXT) and teaches through conversation. It doesn't just answer questions — it adapts to your learning level, quizzes you, tracks weak areas, and re-teaches topics where you struggle.
-
-**Core stack:**
-
-| Layer | Technology |
-|---|---|
-| LLM | OpenAI GPT-4o via LiteLLM (swappable) |
-| Orchestration | LangGraph state machine |
-| Retrieval | ChromaDB + MMR + Cross-encoder re-ranking |
-| Embeddings | OpenAI `text-embedding-3-small` |
-| NLP | spaCy (entities, intent, Bloom's taxonomy) |
-| UI | Streamlit |
-| Tracing | LangSmith (opt-in) |
-| Export | ReportLab PDF |
-
----
-
-## Architecture
-
-```
-Student Query
-     │
-     ▼
-┌────────────┐    NLP preprocessing
-│  Planner   │◄── (spaCy intent + Bloom's)
-│   Agent    │
-└─────┬──────┘
-      │  next_action
-      ├──────────────► Retriever Agent
-      │                  │ HyDE expansion
-      │                  │ MMR retrieval (ChromaDB)
-      │                  │ Cross-encoder re-rank
-      │                  │ LLMLingua compression
-      │                  └─► Socratic answer
-      │
-      ├──────────────► QuizGenerator Agent
-      │                  │ Context-aware MCQ / short-answer
-      │                  │ JSON-mode structured output
-      │                  └─► Quiz displayed to student
-      │
-      └──────────────► Evaluator Agent
-                         │ MCQ: letter-match scoring
-                         │ Short-answer: LLM rubric scoring
-                         │ Weak-topic tracking
-                         └─► Adaptive reteach trigger
-```
-
----
-
-## Features
-
-### 1. Document Ingestion Pipeline
-- Supports PDF, DOCX, DOC, TXT, MD
-- `RecursiveCharacterTextSplitter` (chunk_size=512, overlap=64)
-- SHA-256 chunk deduplication — re-ingesting the same file is a no-op
-- Rich metadata per chunk (source, page, file hash, Bloom's level)
-
-### 2. Multi-Agent Orchestration (LangGraph)
-- **Planner**: NLP preprocessing, intent detection, routing
-- **Retriever**: Advanced RAG → Socratic answer generation
-- **QuizGenerator**: Adaptive MCQ + short-answer in JSON mode
-- **Evaluator**: Rubric scoring, weak-topic tracking, reteach trigger
-- Conditional edges driven by `state["next_action"]`
-
-### 3. Advanced RAG
-- **HyDE** (Hypothetical Document Embeddings): embeds a synthetic answer instead of the raw query for better recall
-- **MMR retrieval** (k=6, fetch_k=20): balances relevance with diversity
-- **Cross-encoder re-ranking**: `ms-marco-MiniLM-L-6-v2` re-scores (query, passage) pairs
-- **LLMLingua-style compression**: LLM extracts only sentences relevant to the question
-
-### 4. NLP Preprocessing (spaCy)
-- Named entity extraction (PERSON, ORG, GPE, PRODUCT, …)
-- Noun-chunk topic extraction
-- Rule-based intent classifier: Ask / Explain / Quiz / Evaluate
-- Bloom's taxonomy tagger on queries and retrieved chunks
-
-### 5. Adaptive Quiz System
-- Alternates MCQ and short-answer each turn for variety
-- Prioritises weak topics automatically
-- Rubric scoring with `key_points` coverage check
-- Rolling score history → weak areas flagged at <60%
-- Automatic reteach loop when score is low
-
-### 6. Streamlit UI
-- Socratic tutor persona (Socrates avatar)
-- File uploader with live ingestion feedback
-- Sidebar: KB stats, topics covered, weak area pills, score chart
-- PDF session report download button
-- Source citations collapsible under each answer
-
-### 7. LangSmith Tracing
-- Toggle via `LANGCHAIN_TRACING_V2=true` in `.env`
-- Zero code changes required — purely env-flag driven
-
-### 8. PDF Export
-- ReportLab-generated session performance report
-- Includes: score summary, topic coverage, weak areas, score history table
-
----
+> **Note on model names:** `gemini-1.5-flash` and `models/embedding-001` have since
+> been retired by Google. This project uses `gemini-2.5-flash` (chat) and
+> `models/gemini-embedding-001` (embeddings) instead — both confirmed working on the
+> free tier. If Google retires these too, run `curl "https://generativelanguage.googleapis.com/v1beta/models?key=$GEMINI_API_KEY"`
+> to see what's currently available and update the model names in `backend/agents/*.py`,
+> `backend/rag/*.py`, and `backend/ingest/embedder.py`.
 
 ## Project Structure
 
 ```
-ai_tutor/
-├── config/
-│   ├── __init__.py
-│   ├── settings.py          # Pydantic-settings config singleton
-│   └── llm_factory.py       # LiteLLM-backed LLM factory
-│
-├── ingest/
-│   ├── __init__.py
-│   ├── loaders.py           # PDF / DOCX / TXT loaders
-│   ├── chunker.py           # RecursiveCharacterTextSplitter
-│   ├── vector_store.py      # ChromaDB manager + deduplication
-│   └── pipeline.py          # High-level ingest_file / ingest_directory
-│
-├── rag/
-│   ├── __init__.py
-│   ├── hyde.py              # HyDE query expansion
-│   ├── compressor.py        # Cross-encoder re-ranking + LLM compression
-│   └── pipeline.py          # Full RAG pipeline
-│
-├── nlp/
-│   ├── __init__.py
-│   └── processor.py         # spaCy NLP + intent + Bloom's tagger
-│
-├── agents/
-│   ├── __init__.py
-│   ├── state.py             # TutorState TypedDict
-│   ├── planner.py           # Planner agent node
-│   ├── retriever.py         # Retriever agent node
-│   ├── quiz_generator.py    # QuizGenerator agent node
-│   ├── evaluator.py         # Evaluator agent node
-│   └── graph.py             # LangGraph wiring + run_tutor()
-│
-├── ui/
-│   ├── __init__.py
-│   ├── app.py               # Streamlit chat application
-│   └── exporter.py          # ReportLab PDF report generator
-│
-├── tests/
-│   ├── __init__.py
-│   ├── test_nlp.py
-│   ├── test_ingest.py
-│   └── test_agents.py
-│
-├── exports/                 # Generated PDF reports
-├── chroma_db/               # ChromaDB persistent store (gitignored)
-├── docs/                    # Drop study documents here for `make ingest`
-│
-├── .env.example
-├── requirements.txt
-├── Makefile
-├── README.md
-└── ARCHITECTURE.md
+ai-tutor/
+├── backend/    # FastAPI + LangGraph agent pipeline
+└── frontend/   # Next.js app
 ```
 
----
+## Prerequisites
 
-## Quick Start
+- Python 3.11+
+- Node.js 18+
+- A free [Google Gemini API key](https://aistudio.google.com/app/apikey)
 
-### 1. Clone and install
-
-```bash
-git clone <repo-url>
-cd ai_tutor
-make setup          # installs deps + downloads spaCy model
-```
-
-### 2. Configure environment
+## Backend Setup
 
 ```bash
+cd ai-tutor/backend
+python -m venv venv
+source venv/bin/activate        # Windows: venv\Scripts\activate
+
+pip install -r requirements.txt
+python -m spacy download en_core_web_sm
+
 cp .env.example .env
-# Edit .env — at minimum set OPENAI_API_KEY
+# edit .env and set GEMINI_API_KEY=<your key>
+
+cd ..                            # back to ai-tutor/ — required so `backend` resolves as a package
+uvicorn backend.api.main:app --reload --port 8000
 ```
 
-### 3. Ingest your documents
+> `uvicorn backend.api.main:app` must be run from `ai-tutor/` (the parent of the
+> `backend` package), not from inside `backend/` — otherwise you'll get
+> `ModuleNotFoundError: No module named 'backend'`. The venv stays active either way
+> since activation only changes `PATH`/`PYTHONHOME`, not your working directory.
 
-```bash
-mkdir docs
-cp /path/to/your/notes.pdf docs/
-make ingest                    # ingests everything in ./docs
-# OR
-make ingest-file FILE=notes.pdf
-```
+The API will be available at `http://localhost:8000`. Interactive docs at
+`http://localhost:8000/docs`.
 
-### 4. Launch the tutor
-
-```bash
-make run
-# Opens http://localhost:8501
-```
-
----
-
-## Configuration
-
-All settings are in `.env`. Key variables:
+### Backend environment variables (`backend/.env`)
 
 | Variable | Default | Description |
 |---|---|---|
-| `OPENAI_API_KEY` | — | Required |
-| `LLM_MODEL` | `gpt-4o` | Any LiteLLM model string |
-| `EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI embedding model |
-| `CHUNK_SIZE` | `512` | Characters per chunk |
+| `GEMINI_API_KEY` | — | Your Google Gemini API key (required) |
+| `CHROMA_DB_PATH` | `./chroma_db` | Path for the persistent Chroma vector store |
+| `COLLECTION_NAME` | `tutor` | Base collection name (suffixed per session) |
+| `CHUNK_SIZE` | `512` | Chunk size for document splitting |
 | `CHUNK_OVERLAP` | `64` | Overlap between chunks |
-| `MMR_K` | `6` | Chunks returned to LLM |
-| `MMR_FETCH_K` | `20` | Candidates for MMR + re-ranking |
-| `RELEVANCE_THRESHOLD` | `0.35` | Min cosine similarity to include chunk |
-| `LANGCHAIN_TRACING_V2` | `false` | Enable LangSmith tracing |
-| `LANGCHAIN_API_KEY` | — | LangSmith API key |
+| `TOP_K` | `6` | Number of chunks retrieved per query |
+| `CORS_ORIGINS` | `["http://localhost:3000"]` | Allowed CORS origins |
 
-### Swapping the LLM
-
-Change `LLM_MODEL` in `.env` to any LiteLLM-supported model:
+## Frontend Setup
 
 ```bash
-LLM_MODEL=gemini/gemini-1.5-pro          # Google Gemini
-LLM_MODEL=anthropic/claude-3-5-sonnet-20241022  # Anthropic
-LLM_MODEL=ollama/llama3                  # Local Ollama
+cd ai-tutor/frontend
+npm install
+
+cp .env.local.example .env.local
+# NEXT_PUBLIC_API_URL=http://localhost:8000/api
+
+npm run dev
 ```
 
-No code changes required.
+The app will be available at `http://localhost:3000`.
 
----
+## Running Both Servers
 
-## Usage
-
-### Chat commands
-
-| What you type | What happens |
-|---|---|
-| `What is osmosis?` | Factual retrieval (Ask mode) |
-| `Explain how DNA replication works` | Socratic explanation (Explain mode) |
-| `Quiz me on photosynthesis` | Generates MCQ or short-answer |
-| `B` (after a quiz) | Evaluates your MCQ answer |
-| `Osmosis is the movement of water across a membrane` | Evaluates your short-answer |
-| `Explain it again` | Re-explanation (especially after low score) |
-
-### Uploading documents
-
-Use the **sidebar uploader** or drop files into `docs/` and run `make ingest`.
-
----
-
-## Make Commands
+Open two terminals:
 
 ```bash
-make setup          # Install deps + spaCy model
-make run            # Launch Streamlit UI
-make run-dev        # Launch with auto-reload
-make ingest         # Ingest ./docs directory
-make ingest-file FILE=path/to/file.pdf
-make kb-stats       # Show knowledge base stats
-make test           # Run full test suite
-make test-nlp       # NLP tests only
-make test-ingest    # Ingestion tests only
-make test-agents    # Agent tests only
-make test-cov       # Tests with coverage report
-make lint           # Run ruff linter
-make clean          # Remove caches
-make clean-db       # Delete ChromaDB (with confirmation)
-make clean-exports  # Delete generated PDFs
+# Terminal 1 — backend
+cd ai-tutor/backend && uvicorn backend.api.main:app --reload --port 8000
+
+# Terminal 2 — frontend
+cd ai-tutor/frontend && npm run dev
 ```
 
----
+Then visit `http://localhost:3000`, click **Start Learning**, upload some notes, and
+start chatting with the tutor.
 
-## LangSmith Tracing
+## How It Works
 
-Enable full distributed tracing for every LangGraph node, LLM call, and retrieval step:
+1. **Ingest** — Uploaded documents are parsed (PyMuPDF/python-docx), chunked with
+   `RecursiveCharacterTextSplitter`, embedded with Gemini's `embedding-001`, and
+   stored in a per-session ChromaDB collection.
+2. **Chat** — Each message flows through a LangGraph pipeline:
+   `planner` (intent classification) → `retriever` (HyDE + MMR retrieval + rerank +
+   Bloom tagging) → one of `responder` / `quiz_generator` / `evaluator` depending on
+   intent.
+3. **Progress** — The frontend polls `/api/progress` every 10s to show Bloom's
+   taxonomy coverage, quiz score history, and weak topics.
 
-```bash
-# In .env
-LANGCHAIN_TRACING_V2=true
-LANGCHAIN_API_KEY=ls__your_key_here
-LANGCHAIN_PROJECT=ai-tutor-agent
-```
+## Notes
 
-View traces at [smith.langchain.com](https://smith.langchain.com). Each conversation turn creates a full trace tree showing:
-- Planner routing decision
-- HyDE expansion token cost
-- MMR retrieval latency + chunk scores
-- Cross-encoder re-ranking scores
-- LLM answer generation
-
----
-
-## PDF Report Export
-
-Click **"Download PDF Report"** in the sidebar at any time. The report includes:
-- Session summary (student name, date, turns)
-- Quiz performance table (avg, best, worst score)
-- Topics covered
-- Weak areas flagged
-- Score history bar breakdown
-
----
-
-## Testing
-
-```bash
-make test           # all tests
-make test-cov       # with HTML coverage report at htmlcov/index.html
-```
-
-Tests are designed to run **without API keys** — all LLM and vector-store calls are mocked.
-
-```bash
-pytest tests/test_nlp.py -v      # 14 pure-Python tests, ~0.1s
-pytest tests/test_ingest.py -v   # chunker tests, no external calls
-pytest tests/test_agents.py -v   # routing + scoring tests, mocked LLM
-```
-=======
-# AI_TUTOR
-A multi-agent AI tutoring system with adaptive quizzing and Socratic learning powered by LLMs
->>>>>>> a6eebc7f48a7eae3214c3e6b85406def4cc627ce
+- Session state (chat history, weak topics, vectors) is stored server-side, keyed by
+  a UUID generated client-side on first load and sent via the `X-Session-Id` header.
+- The backend uses an in-memory session store — restarting the backend clears chat
+  history and progress (vector data in ChromaDB persists on disk).
